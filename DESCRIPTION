@@ -1,0 +1,14 @@
+Package: lifeguard
+Title: Unpooling Pooled Cross-sectional Time-series Models 
+Version: 0.1
+Authors@R: 
+    c(person("Dave", "Armstrong", , email="davearmstrong.ps@gmail.com", role = c("aut", "cre"),
+           comment = c(ORCID = "0000-0002-9358-2489")),
+    person("William", "Poirier", , "wpoirier@uwo.ca", role = c("aut"),
+           comment = c(ORCID = "0000-0002-3274-1351")))
+Description: Functions to help with unpooling analyses of pooled cross-sectional time-series data. 
+License: MIT + file LICENSE
+Depends: dplyr, mvtnorm, stats
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.2
