@@ -4,7 +4,7 @@
 \alias{lrm_ci}
 \title{Confidence Intervals for Long-run Multipliers}
 \usage{
-lrm_ci(obj, y_coefs, x_coefs, level = 0.95, ...)
+lrm_ci(obj, y_coefs, x_coefs, qb_dist = c("t", "normal"), level = 0.95, ...)
 }
 \arguments{
 \item{obj}{A linear regression model in ADL form.}
@@ -14,6 +14,8 @@ lrm_ci(obj, y_coefs, x_coefs, level = 0.95, ...)
 \item{x_coefs}{A list of vectors of index values for the level and lag-x coefficients from the model. Each
 element of the list is assumed to be a different variable whose LRM is to be calculated.  If the list is
 named, the output uses those names.}
+
+\item{qb_dist}{The distribution for the quasi-Bayesian simulation either \code{"normal"} or \code{"t"} (default is \code{"t"}).}
 
 \item{level}{The confidence level for the intervals.  Default is \code{0.95}.}
 
@@ -26,6 +28,8 @@ A data frame with the following variables:
 \item \code{est} - The estimate of the long-run multiplier
 \item \code{delta_se} - The approximate standard error of the estimate calculated by the delta method
 \item \code{lwr_h}, \code{upr_h} - The confidence bounds calculated from the Hinkley distribution.
+\item \code{lwr_qbn}, \code{upr_qbn} - The confidence bounds calculated from a quasi-Bayesian simulation using a multivariate normal distribution.
+\item \code{lwr_qbt}, \code{upr_qbt} - The confidence bounds calculated from a quasi-Bayesian simulation using a multivariate t distribution.
 \item \code{lwr_t}, \code{upr_t} - The confidence bounds calculated from the t-distribution using the delta method SE
 }
 }

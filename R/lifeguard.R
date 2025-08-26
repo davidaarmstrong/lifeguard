@@ -157,9 +157,12 @@ qhinkley <- function(p, mu_a, mu_b, sigma_a, sigma_b, sigma_ab, tol = 1e-8, maxi
 #' @param x_coefs A list of vectors of index values for the level and lag-x coefficients from the model. Each
 #' element of the list is assumed to be a different variable whose LRM is to be calculated.  If the list is
 #' named, the output uses those names.
+#' @param qb_dist The distribution for the quasi-Bayesian simulation either `"normal"` or `"t"` (default is `"t"`).
 #' @param level The confidence level for the intervals.  Default is `0.95`.
+#' @param t_min Minimum adjusted degrees of freedom in the t-distribution simulation.  Default is 2.
 #' @param ... Additional arguments, currently not implemented.
-#' @importFrom stats coef vcov terms qt
+#' @importFrom stats coef vcov terms qt quantile
+#' @importFrom mvtnorm rmvnorm rmvt
 #' @examples
 #' x <- y <- c(0, rep(NA, 99))
 #' for(t in 2:100){
@@ -178,9 +181,12 @@ qhinkley <- function(p, mu_a, mu_b, sigma_a, sigma_b, sigma_ab, tol = 1e-8, maxi
 #' * `est` - The estimate of the long-run multiplier
 #' * `delta_se` - The approximate standard error of the estimate calculated by the delta method
 #' * `lwr_h`, `upr_h` - The confidence bounds calculated from the Hinkley distribution.
+#' * `lwr_qbn`, `upr_qbn` - The confidence bounds calculated from a quasi-Bayesian simulation using a multivariate normal distribution.
+#' * `lwr_qbt`, `upr_qbt` - The confidence bounds calculated from a quasi-Bayesian simulation using a multivariate t distribution.
 #' * `lwr_t`, `upr_t` - The confidence bounds calculated from the t-distribution using the delta method SE
 #' @export
-lrm_ci <- function(obj, y_coefs, x_coefs, level=.95, ...){
+lrm_ci <- function(obj, y_coefs, x_coefs, qb_dist = c("t", "normal"), level=.95, t_min = 2, ...){
+  dist <- match.arg(qb_dist, several.ok = TRUE)
   delta_ratio_sd <- function(mu, Sigma) {
     # mu: vector c(mu_a, mu_b)
     # Sigma: 2x2 covariance matrix
@@ -221,12 +227,47 @@ lrm_ci <- function(obj, y_coefs, x_coefs, level=.95, ...){
   delta_sds <- sapply(2:length(ests), \(i){
     delta_ratio_sd(c(ests[i], ests[1]), vcv[c(i, 1), c(i, 1)])
   })
+  rho <- sum(b[y_coefs])
+  inflation_factor = (1+rho)/(1-rho)
+  if("normal" %in% dist){
+    qb_ci_norm <- t(sapply(2:length(ests), \(i){
+      B <- rmvnorm(10000, mean = c(ests[i], ests[1]), sigma = vcv[c(i, 1), c(i, 1)])
+      good <- which(is.finite(B[,1]/B[,2]))
+      if(length(good) > 5000){
+        quantile(B[good[1:5000],1]/B[good[1:5000],2], probs = c(ll, ul))
+      }else{
+        matrix(c(NA, NA), ncol=2)
+      }
+    }))
+    colnames(qb_ci_norm) <- c("lwr_qbn", "upr_qbn")
+  }else{
+    qb_ci_norm <- NULL
+  }
+  if("t" %in% dist){
+    qb_ci_t <- t(sapply(2:length(ests), \(i){
+      B <- rmvt(10000, sigma = vcv[c(i, 1), c(i, 1)], df = pmax(t_min,obj$df.residual/inflation_factor))
+      B[,1] <- B[,1] + ests[i]
+      B[,2] <- B[,2] + ests[1]
+      good <- which(is.finite(B[,1]/B[,2]))
+      if(length(good) > 5000){
+        quantile(B[good[1:5000],1]/B[good[1:5000],2], probs = c(ll, ul))
+      }else{
+        matrix(c(NA, NA), ncol=2)
+      }
+    }))
+    colnames(qb_ci_t) <- c("lwr_qbt", "upr_qbt")
+  }else{
+    qb_ci_norm <- NULL
+  }
   cis <- t(sapply(2:length(ests), \(i){
     qhinkley(p=c(ll, ul), mu_a=ests[i], mu_b=ests[1], sigma_a=sqrt(vcv[i,i]), sigma_b=sqrt(vcv[1,1]), sigma_ab=vcv[i,1])
   }))
   colnames(cis) <- c("lwr_h", "upr_h")
   out <- cbind(data.frame(vbl = names(x_coefs), est= ests[-1]/ests[1], delta_se = delta_sds), cis)
-  out$lwr_t <- out$est - qt(ul, df = obj$df.residual) * delta_sds
-  out$upr_t <- out$est + qt(ul, df = obj$df.residual) * delta_sds
+  out$lwr_t <- out$est - qt(ul, df = pmax(t_min,obj$df.residual/inflation_factor)) * delta_sds
+  out$upr_t <- out$est + qt(ul, df = pmax(t_min,obj$df.residual/inflation_factor)) * delta_sds
+  out <- cbind(out, qb_ci_norm, qb_ci_t)
   return(out)
 }
+
+
