@@ -147,19 +147,20 @@ qhinkley <- function(p, mu_a, mu_b, sigma_a, sigma_b, sigma_ab, tol = 1e-8, maxi
 #' Confidence Intervals for Long-run Multipliers
 #'
 #' Calculates confidence intervals for long-run multipliers from a time-series analysis.
-#' @details The function assumes that the object is the autoregressive distributed lag (ADL)
-#' representation of the regression model.  The confidence intervals are made from both the
+#' @details The function allows the use of either autoregressive distributed lag (ADL) or error correction models (ECM).  The confidence intervals are made from both the
 #' t-distribution (using the delta method for standard errors) and with the Hinkley distribution.
-#' Assuming `b` is the vector of model coefficients, the LRM is calculated with
-#' `sum(b[x_coefs[[i]])/(1-sum(b[y_coefs]))` for each of the `i` elements of `x_coefs`.
+#' Assuming `b` is the vector of model coefficients, the LRM for the ADL is calculated with
+#' `sum(b[x_coefs[[i]])/(1-sum(b[y_coefs]))` for each of the `i` elements of `x_coefs`.  For the ECM, the LRM is calculated with `-b[x_coefs[[i]]/b[y_coefs]`.
 #' @param obj A linear regression model in ADL form.
 #' @param y_coefs A vector of index values for the lag-y coefficients from the model.
-#' @param x_coefs A list of vectors of index values for the level and lag-x coefficients from the model. Each
+#' @param x_coefs For the ADL, a list of vectors of index values for the level and lag-x coefficients from the model. For the ECM, it should be a list, but each
+#' element of the list should have a single value giving the coefficient on the lagged value of each x of interest.  Each
 #' element of the list is assumed to be a different variable whose LRM is to be calculated.  If the list is
 #' named, the output uses those names.
 #' @param qb_dist The distribution for the quasi-Bayesian simulation either `"normal"` or `"t"` (default is `"t"`).
 #' @param level The confidence level for the intervals.  Default is `0.95`.
 #' @param t_min Minimum adjusted degrees of freedom in the t-distribution simulation.  Default is 2.
+#' @param modtype The type of model, either `"adl"` (default) or `"ecm"`.
 #' @param ... Additional arguments, currently not implemented.
 #' @importFrom stats coef vcov terms qt quantile
 #' @importFrom mvtnorm rmvnorm rmvt
@@ -186,8 +187,9 @@ qhinkley <- function(p, mu_a, mu_b, sigma_a, sigma_b, sigma_ab, tol = 1e-8, maxi
 #' * `lwr_t`, `upr_t` - The confidence bounds calculated from the t-distribution using the delta method SE
 #' * `lwr_f1`, `upr_f1`, `lwr_f2`, `upr_f2` - The confidence bounds calculated from Fieller's theorem.  If the confidence set is unbounded, both lower and both upper bounds are `NA`.  If the confidence interval is bounded or half-line, the `lwr_f2` = `upr_f2` = `NA`.
 #' @export
-lrm_ci <- function(obj, y_coefs, x_coefs, qb_dist = c("t", "normal"), level=.95, t_min = 2, ...){
+lrm_ci <- function(obj, y_coefs, x_coefs, qb_dist = c("t", "normal"), level=.95, t_min = 2, modtype = c("adl", "ecm"), ...){
   dist <- match.arg(qb_dist, several.ok = TRUE)
+  mt <- match.arg(modtype)
   delta_ratio_sd <- function(mu, Sigma) {
     # mu: vector c(mu_a, mu_b)
     # Sigma: 2x2 covariance matrix
@@ -202,29 +204,34 @@ lrm_ci <- function(obj, y_coefs, x_coefs, qb_dist = c("t", "normal"), level=.95,
   if(is.null(names(x_coefs))){
     names(x_coefs) <- paste0("x_", seq_along(x_coefs))
   }
-  if(attr(terms(obj), "intercept") == 1){
-    b[1] <- 1
-    v[1,] <- v[,1] <- 0
+  if(mt == "adl"){
+    if(attr(terms(obj), "intercept") == 1){
+      b[1] <- 1
+      v[1,] <- v[,1] <- 0
+    }else{
+      y_coefs <- y_coefs + 1
+      x_coefs <- lapply(x_coefs, \(x)x+1)
+      b <- c(1, b)
+      v <- cbind(0, v)
+      v <- rbind(0, v)
+    }
+    zv <- rep(0, length(b))
+    xL <- lapply(seq_along(x_coefs), \(i){
+      zv[x_coefs[[i]]] <- 1
+      zv
+    })
+    yL <- zv
+    yL[1] <- 1
+    yL[y_coefs] <- -1
+    yL <- matrix(yL, nrow=1)
+    xL <- do.call(rbind, xL)
+    L <- rbind(yL, xL)
+    ests <- b %*% t(L)
+    vcv <- L %*% v %*% t(L)
   }else{
-    y_coefs <- y_coefs + 1
-    x_coefs <- lapply(x_coefs, \(x)x+1)
-    b <- c(1, b)
-    v <- cbind(0, v)
-    v <- rbind(0, v)
+    ests <- b[c(y_coefs, c(unlist(x_coefs)))]
+    vcv <- v[c(y_coefs, c(unlist(x_coefs))), c(y_coefs, c(unlist(x_coefs)))]
   }
-  zv <- rep(0, length(b))
-  xL <- lapply(seq_along(x_coefs), \(i){
-    zv[x_coefs[[i]]] <- 1
-    zv
-  })
-  yL <- zv
-  yL[1] <- 1
-  yL[y_coefs] <- -1
-  yL <- matrix(yL, nrow=1)
-  xL <- do.call(rbind, xL)
-  L <- rbind(yL, xL)
-  ests <- b %*% t(L)
-  vcv <- L %*% v %*% t(L)
   delta_sds <- sapply(2:length(ests), \(i){
     delta_ratio_sd(c(ests[i], ests[1]), vcv[c(i, 1), c(i, 1)])
   })
