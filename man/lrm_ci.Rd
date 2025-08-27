@@ -4,7 +4,15 @@
 \alias{lrm_ci}
 \title{Confidence Intervals for Long-run Multipliers}
 \usage{
-lrm_ci(obj, y_coefs, x_coefs, qb_dist = c("t", "normal"), level = 0.95, ...)
+lrm_ci(
+  obj,
+  y_coefs,
+  x_coefs,
+  qb_dist = c("t", "normal"),
+  level = 0.95,
+  t_min = 2,
+  ...
+)
 }
 \arguments{
 \item{obj}{A linear regression model in ADL form.}
@@ -19,6 +27,8 @@ named, the output uses those names.}
 
 \item{level}{The confidence level for the intervals.  Default is \code{0.95}.}
 
+\item{t_min}{Minimum adjusted degrees of freedom in the t-distribution simulation.  Default is 2.}
+
 \item{...}{Additional arguments, currently not implemented.}
 }
 \value{
@@ -31,6 +41,7 @@ A data frame with the following variables:
 \item \code{lwr_qbn}, \code{upr_qbn} - The confidence bounds calculated from a quasi-Bayesian simulation using a multivariate normal distribution.
 \item \code{lwr_qbt}, \code{upr_qbt} - The confidence bounds calculated from a quasi-Bayesian simulation using a multivariate t distribution.
 \item \code{lwr_t}, \code{upr_t} - The confidence bounds calculated from the t-distribution using the delta method SE
+\item \code{lwr_f1}, \code{upr_f1}, \code{lwr_f2}, \code{upr_f2} - The confidence bounds calculated from Fieller's theorem.  If the confidence set is unbounded, both lower and both upper bounds are \code{NA}.  If the confidence interval is bounded or half-line, the \code{lwr_f2} = \code{upr_f2} = \code{NA}.
 }
 }
 \description{

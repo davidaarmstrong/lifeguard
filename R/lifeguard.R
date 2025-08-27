@@ -184,6 +184,7 @@ qhinkley <- function(p, mu_a, mu_b, sigma_a, sigma_b, sigma_ab, tol = 1e-8, maxi
 #' * `lwr_qbn`, `upr_qbn` - The confidence bounds calculated from a quasi-Bayesian simulation using a multivariate normal distribution.
 #' * `lwr_qbt`, `upr_qbt` - The confidence bounds calculated from a quasi-Bayesian simulation using a multivariate t distribution.
 #' * `lwr_t`, `upr_t` - The confidence bounds calculated from the t-distribution using the delta method SE
+#' * `lwr_f1`, `upr_f1`, `lwr_f2`, `upr_f2` - The confidence bounds calculated from Fieller's theorem.  If the confidence set is unbounded, both lower and both upper bounds are `NA`.  If the confidence interval is bounded or half-line, the `lwr_f2` = `upr_f2` = `NA`.
 #' @export
 lrm_ci <- function(obj, y_coefs, x_coefs, qb_dist = c("t", "normal"), level=.95, t_min = 2, ...){
   dist <- match.arg(qb_dist, several.ok = TRUE)
@@ -263,11 +264,96 @@ lrm_ci <- function(obj, y_coefs, x_coefs, qb_dist = c("t", "normal"), level=.95,
     qhinkley(p=c(ll, ul), mu_a=ests[i], mu_b=ests[1], sigma_a=sqrt(vcv[i,i]), sigma_b=sqrt(vcv[1,1]), sigma_ab=vcv[i,1])
   }))
   colnames(cis) <- c("lwr_h", "upr_h")
+  fcis <- t(sapply(2:length(ests), \(i){
+    fi <- fieller_ci(b1=ests[i], b2=ests[1], V11=vcv[i,i], V22=vcv[1,1], V12=vcv[i,1], df=pmax(t_min,obj$df.residual/inflation_factor), alpha = 1-level)
+    if(fi$type == "bounded"){
+      out <- c(fi$ci, NA, NA)
+    }else if(fi$type == "half-line"){
+      out <- c(fi$ci, NA, NA)
+    }else if(fi$type == "complement"){
+      out <- c(fi$ci[[1]], fi$ci[[2]])
+    }else if(fi$type == "all-real"){
+      out <- c(-Inf, Inf, NA, NA)
+    }else{
+      out <- c(NA, NA, NA, NA)
+    }
+    out
+  }))
+  colnames(fcis) <- c("lwr_f1", "upr_f1", "lwr_f2", "upr_f2")
   out <- cbind(data.frame(vbl = names(x_coefs), est= ests[-1]/ests[1], delta_se = delta_sds), cis)
   out$lwr_t <- out$est - qt(ul, df = pmax(t_min,obj$df.residual/inflation_factor)) * delta_sds
   out$upr_t <- out$est + qt(ul, df = pmax(t_min,obj$df.residual/inflation_factor)) * delta_sds
-  out <- cbind(out, qb_ci_norm, qb_ci_t)
+  out <- cbind(out, qb_ci_norm, qb_ci_t, fcis)
   return(out)
+}
+
+#' Calculate Feiler Confidence Intervals
+#'
+#' @param b1 Estimate of the numerator.
+#' @param b2 Estimate of the denominator.
+#' @param V11 Variance of the numerator estimate.
+#' @param V22 Variance of the denominator estimate.
+#' @param V12 Covariance between the numerator and denominator estimates.
+#' @param df Degrees of freedom for the t-distribution, potentially adjusted for persistence.
+#' @param alpha Desired type I error rate (default is 0.05 for a 95% CI).
+#' @param tol Numerical tolerance for determining special cases (default is 1e-12).
+#' @param ... Additional arguments, currently not implemented.
+#'
+#' @details The degrees of freedom calculation could account for persistence in the data.  For an AR(1) process where $rho$ is the coefficient on y at time (t-1), the Inflation Factor is (1+rho)/(1-rho).  The adjusted degrees of freedom would be residual_df/Inflation Factor.
+#' care should be taken to ensure that the adjusted degrees of freedom is not too small.  For example, setting a floor of 3 or more would work.
+#'
+#' @return A list with the following components:
+#' * `estimate`: The point estimate of the ratio (b1/b2).
+#' * `ci`: The confidence interval(s) for the ratio. This can be a vector of length 2 for a bounded interval, or a list of two vectors for a complement interval.
+#' * `type`: A character string indicating the type of confidence interval: "bounded", "complement", "half-line", "all-real", or "empty".
+#' @export
+fieller_ci <- function(b1, b2, V11, V22, V12, df, alpha = 0.05, tol = 1e-12, ...) {
+  stopifnot(is.finite(b1), is.finite(b2), is.finite(V11), is.finite(V22), is.finite(V12), df > 0)
+  ccrit <- qt(1 - alpha/2, df)
+
+  A <- b2^2 - ccrit^2 * V22
+  B <- 2 * (b1 * b2 - ccrit^2 * V12)
+  C <- b1^2 - ccrit^2 * V11
+  D <- B^2 - 4 * A * C
+
+  est <- b1 / b2
+
+  # Numerical guards
+  if (abs(A) < tol) A <- 0
+  if (D < -tol) D <- -abs(D) # just to be explicit
+
+  out <- list(estimate = est, A = A, B = B, C = C, disc = D, df = df, alpha = alpha)
+
+  if (D < 0) {
+    out$type <- "all-real"     # confidence set is the entire real line
+    out$ci   <- c(-Inf, Inf)
+    return(out)
+  }
+
+  # Compute roots
+  sqrtD <- sqrt(max(D, 0))
+  r1 <- (-B - sqrtD) / (2 * A)
+  r2 <- (-B + sqrtD) / (2 * A)
+  lo <- min(r1, r2); hi <- max(r1, r2)
+
+  if (A > 0) {
+    out$type <- "bounded"
+    out$ci   <- c(lo, hi)      # (lo, hi)
+  } else if (A < 0) {
+    out$type <- "complement"   # (-Inf, lo] U [hi, Inf)
+    out$ci <- list(c(-Inf, lo), c(hi,  Inf))
+  } else {                     # A == 0: linear inequality → half-line
+    # When A==0, inequality reduces to B*theta + C <= 0
+    if (abs(B) < tol) {
+      out$type <- if (C <= 0) "all-real" else "empty"
+      out$ci   <- if (C <= 0) c(-Inf, Inf) else c(NA, NA)
+    } else {
+      thr <- -C / B
+      if (B > 0) { out$type <- "half-line"; out$ci <- c(-Inf, thr) }
+      else       { out$type <- "half-line"; out$ci <- c(thr,  Inf) }
+    }
+  }
+  out
 }
 
 
