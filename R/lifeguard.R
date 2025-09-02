@@ -229,8 +229,18 @@ lrm_ci <- function(obj, y_coefs, x_coefs, qb_dist = c("t", "normal"), level=.95,
     ests <- b %*% t(L)
     vcv <- L %*% v %*% t(L)
   }else{
-    ests <- b[c(y_coefs, c(unlist(x_coefs)))]
-    vcv <- v[c(y_coefs, c(unlist(x_coefs))), c(y_coefs, c(unlist(x_coefs)))]
+    zv <- rep(0, length(b))
+    xL <- lapply(seq_along(x_coefs), \(i){
+      zv[x_coefs[[i]]] <- -1
+      zv
+    })
+    yL <- zv
+    yL[y_coefs] <- 1
+    yL <- matrix(yL, nrow=1)
+    xL <- do.call(rbind, xL)
+    L <- rbind(yL, xL)
+    ests <- b %*% t(L)
+    vcv <- L %*% v %*% t(L)
   }
   delta_sds <- sapply(2:length(ests), \(i){
     delta_ratio_sd(c(ests[i], ests[1]), vcv[c(i, 1), c(i, 1)])
